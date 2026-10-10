@@ -1,6 +1,7 @@
 services:
   hideck:
-    image: yibaiba/hideck:latest
+    image: hideck:volte-fixed-a338bfd9c85228860d75ab7a73b9a4ce6a069b87
+    pull_policy: never
     container_name: hideck
     restart: unless-stopped
     init: true

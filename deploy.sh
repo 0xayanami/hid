@@ -2,7 +2,10 @@
 
 set -eu
 
-SOURCE_BASE_URL="https://raw.githubusercontent.com/yibaiba/hideck/main"
+SOURCE_BASE_URL="https://raw.githubusercontent.com/0xayanami/hid/main"
+# Pin the tested fork revision; restarting containers does not rebuild it.
+SOURCE_REVISION="a338bfd9c85228860d75ab7a73b9a4ce6a069b87"
+FIXED_IMAGE="hideck:volte-fixed-${SOURCE_REVISION}"
 MIN_PORT=1
 MAX_PORT=65535
 
@@ -28,6 +31,7 @@ CONFIG_DIR="$PROJECT_DIR/config"
 CONFIG_FILE="$CONFIG_DIR/config.yaml"
 CONFIG_EXAMPLE="$CONFIG_DIR/config.example.yaml"
 COMPOSE_FILE="$PROJECT_DIR/docker-compose.yml"
+FIXED_COMPOSE_FILE="$PROJECT_DIR/compose.fixed.yml"
 CADDY_COMPOSE_FILE="$PROJECT_DIR/docker-compose.caddy.yml"
 CADDY_DNS_COMPOSE_FILE="$PROJECT_DIR/docker-compose.caddy-dns.yml"
 CADDY_FILE="$PROJECT_DIR/Caddyfile"
@@ -250,15 +254,15 @@ dns_challenge_enabled() {
 run_compose() {
   if dns_challenge_enabled; then
     docker compose -f "$COMPOSE_FILE" -f "$CADDY_COMPOSE_FILE" -f "$CADDY_DNS_COMPOSE_FILE" \
-      --project-directory "$PROJECT_DIR" "$@"
+      -f "$FIXED_COMPOSE_FILE" --project-directory "$PROJECT_DIR" "$@"
     return
   fi
   if [ -f "$CADDY_ENV_FILE" ]; then
     docker compose -f "$COMPOSE_FILE" -f "$CADDY_COMPOSE_FILE" \
-      --project-directory "$PROJECT_DIR" "$@"
+      -f "$FIXED_COMPOSE_FILE" --project-directory "$PROJECT_DIR" "$@"
     return
   fi
-  docker compose -f "$COMPOSE_FILE" --project-directory "$PROJECT_DIR" "$@"
+  docker compose -f "$COMPOSE_FILE" -f "$FIXED_COMPOSE_FILE" --project-directory "$PROJECT_DIR" "$@"
 }
 
 deploy() {
@@ -267,11 +271,23 @@ deploy() {
     exit 1
   }
   docker compose version >/dev/null
-  run_compose pull hideck
+  docker buildx version >/dev/null 2>&1 || {
+    printf 'Docker Buildx is required. Install the Docker Buildx plugin before running this installer.\n' >&2
+    exit 1
+  }
+  build_dir=$(mktemp -d)
+  trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
+  curl -fsSL "https://codeload.github.com/0xayanami/hid/tar.gz/$SOURCE_REVISION" -o "$build_dir/source.tar.gz"
+  mkdir "$build_dir/source"
+  tar -xzf "$build_dir/source.tar.gz" -C "$build_dir/source" --strip-components=1
+  docker buildx build --load --build-arg VERSION=custom-volte-fixed \
+    --build-arg REVISION="$SOURCE_REVISION" -t "$FIXED_IMAGE" "$build_dir/source"
+  # Override any existing upstream image without replacing configuration or data.
+  printf 'services:\n  hideck:\n    image: %s\n    pull_policy: never\n' "$FIXED_IMAGE" > "$FIXED_COMPOSE_FILE"
   if [ -f "$CADDY_ENV_FILE" ]; then
     run_compose pull caddy
   fi
-  run_compose up -d --remove-orphans
+  run_compose up -d --no-build --remove-orphans
   run_compose ps
   printf '\n模组直拨：镜像包含 ADB、ALSA 和内嵌语音资源；宿主机仍需 snd_usb_audio 驱动。\n请保留 Compose 的 privileged 和 /dev:/dev，USB 重枚举后才能访问新设备。\n'
   if [ ! -d /sys/bus/usb/drivers/snd-usb-audio ]; then
