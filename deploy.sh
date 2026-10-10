@@ -9,6 +9,36 @@ FIXED_IMAGE="hideck:volte-fixed-${SOURCE_REVISION}"
 MIN_PORT=1
 MAX_PORT=65535
 
+check_modem_manager() {
+  command -v systemctl >/dev/null 2>&1 || return 0
+  case "${HIDECK_DISABLE_MODEMMANAGER:-0}" in
+    0|1) ;;
+    *) printf 'HIDECK_DISABLE_MODEMMANAGER must be 0 or 1.\n' >&2; exit 1 ;;
+  esac
+  if [ "${HIDECK_DISABLE_MODEMMANAGER:-0}" = 1 ]; then
+    mm_load_state=$(systemctl show ModemManager.service -p LoadState --value 2>/dev/null || true)
+    case "$mm_load_state" in
+      loaded|masked)
+        printf 'Stopping and masking ModemManager so it cannot claim modem devices.\n'
+        systemctl mask --now ModemManager.service || {
+          printf 'Could not mask ModemManager. Run the installer with sudo.\n' >&2
+          exit 1
+        }
+        ;;
+    esac
+    return 0
+  fi
+  if systemctl is-active --quiet ModemManager.service ||
+     systemctl is-enabled --quiet ModemManager.service; then
+    printf '%s\n' \
+      'ModemManager is active or enabled and may claim USB modem serial/QMI devices.' \
+      'On a dedicated HiDeck host, rerun with HIDECK_DISABLE_MODEMMANAGER=1 to stop and mask it.' \
+      'This affects all modems managed by ModemManager on this host.' \
+      'Do not use this option if your network connection depends on ModemManager.' >&2
+    exit 1
+  fi
+}
+
 resolve_project_dir() {
   if [ -n "${HIDECK_DIR:-}" ]; then
     printf '%s\n' "$HIDECK_DIR"
@@ -297,6 +327,7 @@ deploy() {
   fi
 }
 
+check_modem_manager
 initialize_directories
 initialize_deployment_files
 initialize_caddy_environment

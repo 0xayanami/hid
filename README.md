@@ -47,6 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/0xayanami/hid/main/deploy.sh | sh
 curl -fsSL https://raw.githubusercontent.com/0xayanami/hid/main/deploy.sh | HIDECK_DIR=/opt/hideck sh
 ```
 
+On a dedicated Ubuntu VM, ModemManager can claim the modem's serial and QMI devices. The installer checks for an active or enabled service before building. See [installation troubleshooting](docs/install-troubleshooting.md) for the explicit stop/mask option, device ownership checks, and recovery steps.
+
 Then open `http://YOUR_IP:7575`.
 
 With a public hostname (DNS A/AAAA to the host, open `443/TCP` and `443/UDP`):
